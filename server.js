@@ -51,7 +51,7 @@ app.post("/api/start-payment", async (req, res) => {
 
   try {
     const response = await axios.post(
-      "https://sandbox-pgw.2c2p.com/paymentTokenV2", // ✅ Correct endpoint
+      "https://sandbox-pgw.2c2p.com/payment/4.3/paymentToken", // ✅ Correct endpoint
       payloadBase64, // ✅ RAW base64 string as body
       {
         headers: {
