@@ -9,6 +9,7 @@ const app = express();
 app.use(cors({ origin: "*" }));
 app.use(bodyParser.json());
 
+// 🔐 ENV Vars
 const {
   MERCHANT_ID,
   SECRET_KEY,
@@ -24,12 +25,12 @@ function generateSignature(payloadBase64) {
   return crypto.createHmac("sha256", SECRET_KEY).update(payloadBase64).digest("hex");
 }
 
-// ✅ Start 2C2P payment flow
+// ✅ Start Payment Flow
 app.post("/api/start-payment", async (req, res) => {
   const { amount, description, customerEmail } = req.body;
 
   const invoiceNo = "INV" + Date.now();
-  const amountFormatted = parseFloat(amount).toFixed(2); // e.g. 1000.00
+  const amountFormatted = parseFloat(amount).toFixed(2); // e.g., 1000.00
 
   const paymentData = {
     merchantID: MERCHANT_ID,
@@ -50,8 +51,8 @@ app.post("/api/start-payment", async (req, res) => {
 
   try {
     const response = await axios.post(
-      "https://sandbox-pgw.2c2p.com/payment/4.3/paymentToken",
-      payloadStr,
+      "https://sandbox-pgw.2c2p.com/paymentTokenV2", // ✅ Correct endpoint
+      payloadBase64, // ✅ RAW base64 string as body
       {
         headers: {
           "Content-Type": "application/json",
@@ -74,11 +75,11 @@ app.post("/api/start-payment", async (req, res) => {
   }
 });
 
-// ✅ Handle backend webhook (after payment)
+// ✅ Webhook to handle backend return
 app.post("/api/payment-callback", async (req, res) => {
   const { payload, signature } = req.body;
 
-  const expectedSig = crypto.createHmac("sha256", SECRET_KEY).update(payload).digest("hex");
+  const expectedSig = generateSignature(payload);
   if (expectedSig !== signature) return res.status(400).send("Invalid signature");
 
   const decoded = JSON.parse(Buffer.from(payload, "base64").toString("utf-8"));
@@ -86,7 +87,7 @@ app.post("/api/payment-callback", async (req, res) => {
 
   if (decoded.respCode === "0000") {
     try {
-      // Send to Webflow Order API
+      // 📦 Webflow Order
       await axios.post(WEBFLOW_ORDER_API, {
         orderRef: decoded.invoiceNo,
         email: decoded.userDefined1,
@@ -96,7 +97,7 @@ app.post("/api/payment-callback", async (req, res) => {
         status: "Paid"
       });
 
-      // Notify Soraso
+      // 🎫 Soraso Ticket
       await axios.post(SORASO_WEBHOOK, {
         orderId: decoded.invoiceNo,
         customer: decoded.userDefined1,
@@ -112,7 +113,6 @@ app.post("/api/payment-callback", async (req, res) => {
   res.status(200).send("ACK");
 });
 
-// ✅ Health check
+// ✅ Health
 app.get("/", (_, res) => res.send("2C2P Payment Server Running ✅"));
-
-app.listen(5000, () => console.log("🚀 Server on port 5000"));
+app.listen(5000, () => console.log("🚀 Server running on port 5000"));
