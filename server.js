@@ -4,7 +4,9 @@ const crypto = require("crypto");
 const cors = require("cors");
 const bodyParser = require("body-parser");
 const axios = require("axios");
-
+const crypto = require("crypto");
+const payload = JSON.stringify(body);
+const signature = crypto.createHmac("sha256", SECRET_KEY).update(payload).digest("hex");
 const app = express();
 app.use(cors({ origin: "*" }));
 app.use(bodyParser.json());
