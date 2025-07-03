@@ -1,135 +1,106 @@
-// server.js
-
-require("dotenv").config(); // Load .env variables
-
+require("dotenv").config();
 const express = require("express");
-const cors = require("cors");
 const crypto = require("crypto");
+const cors = require("cors");
 const bodyParser = require("body-parser");
 const axios = require("axios");
 
 const app = express();
-const PORT = process.env.PORT || 5000;
-
-// ✅ Enable CORS for Webflow frontend
-app.use(cors({
-  origin: "https://buynow-aquaverse.webflow.io", // 🔐 Replace with your Webflow domain
-  methods: ["GET", "POST"],
-  allowedHeaders: ["Content-Type"]
-}));
-
-// Middleware
-app.use(bodyParser.urlencoded({ extended: false }));
+app.use(cors({ origin: "*" }));
 app.use(bodyParser.json());
 
-// 🔐 ENV variables
 const {
   MERCHANT_ID,
   SECRET_KEY,
-  PAYMENT_URL,
   FRONTEND_RETURN_URL,
   BACKEND_RETURN_URL,
   WEBFLOW_ORDER_API,
   SORASO_WEBHOOK,
+  CURRENCY_CODE
 } = process.env;
 
-// 🔐 Helper function to generate payload + signature
-function generatePayloadSignature(data) {
+// 🔐 Token generator
+function generateSignature(data) {
   const payload = Buffer.from(JSON.stringify(data)).toString("base64");
   const signature = crypto.createHmac("sha256", SECRET_KEY).update(payload).digest("hex");
   return { payload, signature };
 }
 
-// ✅ Start 2C2P payment (called by frontend)
+// ✅ API to get payment token
 app.post("/api/start-payment", async (req, res) => {
   const { amount, description, customerEmail } = req.body;
-
   const invoiceNo = "INV" + Date.now();
-  const amountStr = parseFloat(amount).toFixed(2).replace(".", ""); // e.g. 100.00 => "10000"
+  const amountFormatted = parseFloat(amount).toFixed(2);
 
-  const paymentRequest = {
-    version: "8.5",
+  const data = {
     merchantID: MERCHANT_ID,
     invoiceNo,
-    description: description || "Online Purchase",
-    amount: amountStr,
-    currencyCode: "764", // THB
-    paymentChannel: "ALL",
+    description: description || "Aquaverse Ticket",
+    amount: amountFormatted,
+    currencyCode: CURRENCY_CODE,
+    paymentChannel: ["CC"],
     frontendReturnUrl: FRONTEND_RETURN_URL,
     backendReturnUrl: BACKEND_RETURN_URL,
-    userDefined1: customerEmail || "no-email",
+    userDefined1: customerEmail || "guest@example.com"
   };
 
-  const { payload, signature } = generatePayloadSignature(paymentRequest);
+  try {
+    const response = await axios.post(
+      "https://sandbox-pgw.2c2p.com/paymentTokenV2",
+      data,
+      { headers: { "Content-Type": "application/json" } }
+    );
 
-  res.json({
-    paymentURL: PAYMENT_URL,
-    payload,
-    signature,
-  });
+    const { respCode, webPaymentUrl } = response.data;
+
+    if (respCode !== "0000") {
+      return res.status(400).json({ error: "Token generation failed" });
+    }
+
+    return res.json({ redirectUrl: webPaymentUrl });
+
+  } catch (err) {
+    console.error("❌ Token API Error", err.response?.data || err.message);
+    res.status(500).send("Failed to generate payment token.");
+  }
 });
 
-// ✅ Webhook (2C2P calls this after payment)
+// ✅ Handle backend notification
 app.post("/api/payment-callback", async (req, res) => {
   const { payload, signature } = req.body;
 
-  // 1. Verify signature
-  const expectedSignature = crypto
-    .createHmac("sha256", SECRET_KEY)
-    .update(payload)
-    .digest("hex");
+  const expectedSig = crypto.createHmac("sha256", SECRET_KEY).update(payload).digest("hex");
+  if (expectedSig !== signature) return res.status(400).send("Invalid signature");
 
-  if (expectedSignature !== signature) {
-    console.log("❌ Signature mismatch");
-    return res.status(400).send("Invalid signature");
-  }
+  const decoded = JSON.parse(Buffer.from(payload, "base64").toString("utf-8"));
+  console.log("✅ Payment Received:", decoded);
 
-  // 2. Decode payload
-  const decodedPayload = JSON.parse(Buffer.from(payload, "base64").toString("utf-8"));
-  console.log("✅ Payment Callback Received:", decodedPayload);
-
-  // 3. Proceed only if payment is successful
-  if (decodedPayload.paymentStatus === "0000") {
-    const invoiceNo = decodedPayload.invoiceNo;
-    const customerEmail = decodedPayload.userDefined1 || "unknown";
-
+  if (decoded.respCode === "0000") {
     try {
-      // ✅ 3A. Create order in Webflow
       await axios.post(WEBFLOW_ORDER_API, {
-        orderRef: invoiceNo,
-        email: customerEmail,
-        amount: decodedPayload.amount,
-        currency: decodedPayload.currencyCode,
-        paymentMethod: decodedPayload.paymentChannelCode,
-        status: "Paid",
+        orderRef: decoded.invoiceNo,
+        email: decoded.userDefined1,
+        amount: decoded.amount,
+        currency: decoded.currencyCode,
+        paymentMethod: decoded.channelCode,
+        status: "Paid"
       });
 
-      console.log("✅ Webflow order created");
-
-      // ✅ 3B. Trigger Soraso ticket
       await axios.post(SORASO_WEBHOOK, {
-        orderId: invoiceNo,
-        customer: customerEmail,
-        issue: "New paid order",
+        orderId: decoded.invoiceNo,
+        customer: decoded.userDefined1,
+        issue: "New paid order"
       });
 
-      console.log("✅ Soraso ticket created");
-    } catch (error) {
-      console.error("❌ Error sending to Webflow or Soraso:", error.message);
+      console.log("✅ Webflow + Soraso triggered");
+    } catch (err) {
+      console.error("❌ Webhook Error", err.message);
     }
-  } else {
-    console.log("❌ Payment not successful:", decodedPayload.paymentStatus);
   }
 
-  // Always respond with 200
   res.status(200).send("ACK");
 });
 
-// 🟢 Simple health check
-app.get("/", (req, res) => {
-  res.send("2C2P Integration Server is Live ✅");
-});
-
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-});
+// ✅ Health check
+app.get("/", (_, res) => res.send("2C2P Payment Server Running ✅"));
+app.listen(5000, () => console.log("🚀 Server on port 5000"));
