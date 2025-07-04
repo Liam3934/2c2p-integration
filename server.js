@@ -15,7 +15,8 @@ const {
   CURRENCY_CODE,
   FRONTEND_RETURN_URL,
   BACKEND_RETURN_URL,
-  WEBFLOW_ORDER_API,
+  WEBFLOW_API_TOKEN,
+  COLLECTION_ID,
   SORASO_WEBHOOK
 } = process.env;
 
@@ -32,7 +33,7 @@ function generateJWT(payload) {
 
 // ✅ Start Payment: returns 2C2P redirect URL
 app.post("/api/start-payment", async (req, res) => {
-  const { amount, description, customerEmail } = req.body;
+  const { amount, description, customerEmail, products } = req.body;
 
   const invoiceNo = "INV" + Date.now();
   const amountFormatted = parseFloat(amount).toFixed(2);
@@ -46,7 +47,8 @@ app.post("/api/start-payment", async (req, res) => {
     paymentChannel: ["CC"],
     frontendReturnUrl: FRONTEND_RETURN_URL,
     backendReturnUrl: BACKEND_RETURN_URL,
-    userDefined1: customerEmail || "guest@example.com"
+    userDefined1: customerEmail || "guest@example.com",
+    userDefined2: products || "N/A"
   };
 
   const jwtToken = generateJWT(paymentPayload);
@@ -83,16 +85,16 @@ app.post("/api/payment-callback", async (req, res) => {
     console.log("✅ Payment Callback:", decoded);
 
     if (decoded.respCode === "0000") {
-      // Paid successfully — trigger Webflow + Soraso
-      await axios.post(WEBFLOW_ORDER_API, {
-        orderRef: decoded.invoiceNo,
-        email: decoded.userDefined1 || "unknown",
-        amount: decoded.amount,
-        currency: decoded.currencyCode,
-        paymentMethod: decoded.channelCode,
-        status: "Paid"
+      // ✅ Call Webflow CMS API to create order
+      await axios.post(`https://int-production.up.railway.app/api/webflow-order`, {
+        orderNumber: decoded.invoiceNo,
+        status: "Paid",
+        customer: decoded.userDefined1,
+        total: decoded.amount,
+        products: decoded.userDefined2
       });
 
+      // ✅ Call Soraso webhook
       await axios.post(SORASO_WEBHOOK, {
         orderId: decoded.invoiceNo,
         customer: decoded.userDefined1 || "unknown",
@@ -107,6 +109,48 @@ app.post("/api/payment-callback", async (req, res) => {
   }
 
   res.status(200).send("ACK");
+});
+
+// ✅ Webflow CMS Order Creator
+app.post("/api/webflow-order", async (req, res) => {
+  const { orderNumber, status, customer, total, products } = req.body;
+
+  try {
+    const response = await axios.post(
+      `https://api.webflow.com/v2/collections/${COLLECTION_ID}/items?live=true`,
+      {
+        fieldData: {
+          name: `Order ${orderNumber}`,
+          slug: orderNumber.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
+          mail: customer,
+          products: products,
+          status: status || "Paid",
+          total: parseFloat(total),
+          _archived: false,
+          _draft: false
+        }
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${WEBFLOW_API_TOKEN}`,
+          "Content-Type": "application/json"
+        }
+      }
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Webflow CMS order created",
+      data: response.data
+    });
+  } catch (err) {
+    console.error("❌ Webflow API Error:", err.response?.data || err.message);
+    return res.status(500).json({
+      success: false,
+      error: err.message,
+      details: err.response?.data || null
+    });
+  }
 });
 
 // ✅ Health check
@@ -132,56 +176,9 @@ app.get("/api/dev/generate-jwt", (req, res) => {
     rawPayload: payload
   });
 });
-// ✅ Webflow CMS Order Creator
-app.post("/api/webflow-order", async (req, res) => {
-  const {
-    orderNumber,
-    status,
-    customer,
-    total
-  } = req.body;
-
-  try {
-    const response = await axios.post(
-      `https://api.webflow.com/v2/collections/${process.env.COLLECTION_ID}/items?live=true`,
-      {
-        fieldData: {
-          name: `Order ${orderNumber}`,
-          slug: orderNumber.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
-          "order-number": orderNumber,
-          mail: customerEmail, 
-          products: productSummary,
-          // status: status || "Paid",
-          total: parseFloat(total),
-          _archived: false,
-          _draft: false
-        }
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${process.env.WEBFLOW_API_TOKEN}`,
-          "Content-Type": "application/json"
-        }
-      }
-    );
-
-    return res.status(200).json({
-      success: true,
-      message: "Webflow CMS order created",
-      data: response.data
-    });
-  } catch (err) {
-    console.error("❌ Webflow API Error:", err.response?.data || err.message);
-    return res.status(500).json({
-      success: false,
-      error: err.message,
-      details: err.response?.data || null
-    });
-  }
-});
 
 // Start server
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
-  console.log(`✅ Server is running on http://localhost:5000`);
+  console.log(`✅ Server is running on http://localhost:${PORT}`);
 });
