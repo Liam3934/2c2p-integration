@@ -207,12 +207,3 @@ const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`✅ Server is running on http://localhost:${PORT}`);
 });
-console.log("📦 Sending Webflow CMS Order:", {
-  name: `Order ${orderNumber}`,
-  slug: orderNumber.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
-  "order-number": orderNumber,
-  "customer-email": customer,
-  "total": parseFloat(total),
-  "status-2": status || "Paid",
-  "product": products || "N/A"
-});
