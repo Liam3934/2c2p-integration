@@ -77,32 +77,52 @@ app.post("/api/start-payment", async (req, res) => {
 app.post("/api/payment-callback", async (req, res) => {
   const { payload } = req.body;
 
+  console.log("📩 Received 2C2P Callback Payload:", payload);
+
   try {
     const decoded = jwt.verify(payload, SECRET_KEY, {
       algorithms: ["HS256"]
     });
 
-    console.log("✅ Payment Callback:", decoded);
+    console.log("✅ Decoded Payment JWT:", decoded);
 
     if (decoded.respCode === "0000") {
-      // ✅ Call Webflow CMS API to create order
-      await axios.post(`https://int-production.up.railway.app/api/webflow-order`, {
+      // ✅ Webflow order payload
+      const webflowData = {
         orderNumber: decoded.invoiceNo,
         status: "Paid",
         customer: decoded.userDefined1,
         total: decoded.amount,
         products: decoded.userDefined2
-      });
+      };
 
-      // ✅ Call Soraso webhook
-      await axios.post(SORASO_WEBHOOK, {
-        orderId: decoded.invoiceNo,
-        customer: decoded.userDefined1 || "unknown",
-        issue: "New paid order"
-      });
+      console.log("📤 Creating Webflow CMS Order with:", webflowData);
 
-      console.log("📦 Webflow + Soraso triggered");
+      try {
+        const webflowRes = await axios.post(
+          `https://int-production.up.railway.app/api/webflow-order`,
+          webflowData
+        );
+        console.log("✅ Webflow Order Response:", webflowRes.data);
+      } catch (webflowErr) {
+        console.error("❌ Webflow Order Error:", webflowErr.response?.data || webflowErr.message);
+      }
+
+      try {
+        const sorasoRes = await axios.post(SORASO_WEBHOOK, {
+          orderId: decoded.invoiceNo,
+          customer: decoded.userDefined1 || "unknown",
+          issue: "New paid order"
+        });
+        console.log("✅ Soraso Triggered:", sorasoRes.data);
+      } catch (sorasoErr) {
+        console.error("❌ Soraso Webhook Error:", sorasoErr.response?.data || sorasoErr.message);
+      }
+
+    } else {
+      console.warn("⚠️ Payment failed:", decoded.respDesc);
     }
+
   } catch (err) {
     console.error("❌ Invalid callback JWT:", err.message);
     return res.status(400).send("Invalid signature");
@@ -110,26 +130,27 @@ app.post("/api/payment-callback", async (req, res) => {
 
   res.status(200).send("ACK");
 });
-
 // ✅ Webflow CMS Order Creator
 app.post("/api/webflow-order", async (req, res) => {
   const { orderNumber, status, customer, total, products } = req.body;
 
+  const fieldData = {
+    name: `Order ${orderNumber}`,
+    slug: orderNumber.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
+    mail: customer,
+    products,
+    status: status || "Paid",
+    total: parseFloat(total),
+    _archived: false,
+    _draft: false
+  };
+
+  console.log("📝 Sending to Webflow:", fieldData);
+
   try {
     const response = await axios.post(
       `https://api.webflow.com/v2/collections/${COLLECTION_ID}/items?live=true`,
-      {
-        fieldData: {
-          name: `Order ${orderNumber}`,
-          slug: orderNumber.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
-          mail: customer,
-          products: products,
-          status: status || "Paid",
-          total: parseFloat(total),
-          _archived: false,
-          _draft: false
-        }
-      },
+      { fieldData },
       {
         headers: {
           Authorization: `Bearer ${WEBFLOW_API_TOKEN}`,
@@ -138,11 +159,14 @@ app.post("/api/webflow-order", async (req, res) => {
       }
     );
 
+    console.log("✅ Webflow CMS Response:", response.data);
+
     return res.status(200).json({
       success: true,
       message: "Webflow CMS order created",
       data: response.data
     });
+
   } catch (err) {
     console.error("❌ Webflow API Error:", err.response?.data || err.message);
     return res.status(500).json({
@@ -152,7 +176,6 @@ app.post("/api/webflow-order", async (req, res) => {
     });
   }
 });
-
 // ✅ Health check
 app.get("/", (_, res) => {
   res.send("🚀 2C2P Payment Server Running");
