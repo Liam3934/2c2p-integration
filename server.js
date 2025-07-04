@@ -149,7 +149,7 @@ app.post("/api/webflow-order", async (req, res) => {
           name: `Order ${orderNumber}`,
           slug: orderNumber.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
           "order-number": orderNumber,
-          mail: customer, 
+          mail: customerEmail, 
           products: productSummary,
           // status: status || "Paid",
           total: parseFloat(total),
