@@ -132,6 +132,53 @@ app.get("/api/dev/generate-jwt", (req, res) => {
     rawPayload: payload
   });
 });
+// ✅ Webflow CMS Order Creator
+app.post("/api/webflow-order", async (req, res) => {
+  const {
+    orderNumber,
+    status,
+    customer,
+    total
+  } = req.body;
+
+  try {
+    const response = await axios.post(
+      `https://api.webflow.com/collections/${process.env.COLLECTION_ID}/items?live=true`,
+      {
+        fields: {
+          name: `Order ${orderNumber}`,
+          slug: orderNumber.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
+          "order-number": orderNumber,
+          status: status || "Paid",
+          customer: customer,
+          total: parseFloat(total),
+          _archived: false,
+          _draft: false
+        }
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.WEBFLOW_API_TOKEN}`,
+          "accept-version": "1.0.0",
+          "Content-Type": "application/json"
+        }
+      }
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Webflow CMS order created",
+      data: response.data
+    });
+  } catch (err) {
+    console.error("❌ Webflow API Error:", err.response?.data || err.message);
+    return res.status(500).json({
+      success: false,
+      error: err.message,
+      details: err.response?.data || null
+    });
+  }
+});
 
 // Start server
 const PORT = process.env.PORT || 5000;
