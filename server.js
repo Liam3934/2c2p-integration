@@ -146,7 +146,7 @@ app.post("/api/webflow-order", async (req, res) => {
       `https://api.webflow.com/v2/collections/${process.env.COLLECTION_ID}/items?live=true`,
       {
         fieldData: {
-          orderId: `Order ${orderNumber}`,
+          name: `Order ${orderNumber}`,
           slug: orderNumber.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
           "order-number": orderNumber,
           status: status || "Paid",
@@ -159,7 +159,6 @@ app.post("/api/webflow-order", async (req, res) => {
       {
         headers: {
           Authorization: `Bearer ${process.env.WEBFLOW_API_TOKEN}`,
-          "accept-version": "1.0.0",
           "Content-Type": "application/json"
         }
       }
