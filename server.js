@@ -135,14 +135,15 @@ app.post("/api/webflow-order", async (req, res) => {
   const { orderNumber, status, customer, total, products } = req.body;
 
   const fieldData = {
-    name: `Order ${orderNumber}`,
-    slug: orderNumber.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
-    mail: customer,
-    products,
-    status: status || "Paid",
-    total: parseFloat(total),
-    _archived: false,
-    _draft: false
+     name: `Order ${orderNumber}`,
+  slug: orderNumber.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
+  "order-number": orderNumber,
+  "customer-email": customer,
+  "total": parseFloat(total),
+  "status-2": status || "Paid",
+  "product": products || "N/A",
+  _archived: false,
+  _draft: false
   };
 
   console.log("📝 Sending to Webflow:", fieldData);
