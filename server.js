@@ -145,7 +145,7 @@ app.post("/api/webflow-order", async (req, res) => {
     const response = await axios.post(
       `https://api.webflow.com/v2/collections/${process.env.COLLECTION_ID}/items?live=true`,
       {
-        fields: {
+        fieldData: {
           orderId: `Order ${orderNumber}`,
           slug: orderNumber.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
           "order-number": orderNumber,
