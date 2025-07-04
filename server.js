@@ -143,10 +143,10 @@ app.post("/api/webflow-order", async (req, res) => {
 
   try {
     const response = await axios.post(
-      `https://api.webflow.com/collections/${process.env.COLLECTION_ID}/items?live=true`,
+      `https://api.webflow.com/v2/collections/${process.env.COLLECTION_ID}/items?live=true`,
       {
         fields: {
-          name: `Order ${orderNumber}`,
+          orderId: `Order ${orderNumber}`,
           slug: orderNumber.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
           "order-number": orderNumber,
           status: status || "Paid",
