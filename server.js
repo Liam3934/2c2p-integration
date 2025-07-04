@@ -134,19 +134,23 @@ app.post("/api/payment-callback", async (req, res) => {
 app.post("/api/webflow-order", async (req, res) => {
   const { orderNumber, status, customer, total, products } = req.body;
 
+  if (!orderNumber || !customer || !total) {
+    return res.status(400).json({ error: "Missing required order fields" });
+  }
+
   const fieldData = {
-     name: `Order ${orderNumber}`,
-  slug: orderNumber.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
-  "order-number": orderNumber,
-  "customer-email": customer,
-  "total": parseFloat(total),
-  "status-2": status || "Paid",
-  "product": products || "N/A",
-  _archived: false,
-  _draft: false
+    name: `Order ${orderNumber}`,
+    slug: orderNumber.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
+    "order-number": orderNumber,
+    "customer-email": customer,
+    total: parseFloat(total),
+    "status-2": status || "Paid",
+    product: products || "N/A",
+    _archived: false,
+    _draft: false
   };
 
-  console.log("📝 Sending to Webflow:", fieldData);
+  console.log("📦 Webflow Payload:", fieldData);
 
   try {
     const response = await axios.post(
@@ -160,14 +164,11 @@ app.post("/api/webflow-order", async (req, res) => {
       }
     );
 
-    console.log("✅ Webflow CMS Response:", response.data);
-
     return res.status(200).json({
       success: true,
       message: "Webflow CMS order created",
       data: response.data
     });
-
   } catch (err) {
     console.error("❌ Webflow API Error:", err.response?.data || err.message);
     return res.status(500).json({
