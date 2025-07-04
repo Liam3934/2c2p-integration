@@ -76,7 +76,7 @@ app.post("/api/start-payment", async (req, res) => {
 // ✅ Callback Handler: Called by 2C2P after payment
 app.post("/api/payment-callback", async (req, res) => {
   const { payload } = req.body;
-
+ console.log("📩 Raw Callback Payload Received:", req.body);
   console.log("📩 Received 2C2P Callback Payload:", payload);
 
   try {
