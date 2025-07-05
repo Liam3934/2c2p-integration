@@ -20,7 +20,6 @@ const {
   SORASO_WEBHOOK
 } = process.env;
 
-// 🔐 JWT Generator
 function generateJWT(payload) {
   return jwt.sign(payload, SECRET_KEY, {
     algorithm: "HS256",
@@ -31,16 +30,14 @@ function generateJWT(payload) {
   });
 }
 
-// ✅ Start Payment
 app.post("/api/start-payment", async (req, res) => {
-  const { amount, description, customerEmail, products } = req.body;
+  const { amount, description, customerEmail, products, bookingDate } = req.body;
 
   const invoiceNo = "INV" + Date.now();
   const amountFormatted = parseFloat(amount).toFixed(2);
-
-  // ✅ Sanitize userDefined fields
   const safeEmail = (customerEmail || "guest@example.com").substring(0, 100);
-  const safeProducts = (products || "N/A").substring(0, 200).replace(/[^\w\d\s.,-]/g, '');
+  const safeProducts = (products || "N/A").substring(0, 200).replace(/[^\x00-\x7F]/g, '');
+  const safeDate = bookingDate || null;
 
   const paymentPayload = {
     merchantID: MERCHANT_ID,
@@ -52,12 +49,11 @@ app.post("/api/start-payment", async (req, res) => {
     frontendReturnUrl: FRONTEND_RETURN_URL,
     backendReturnUrl: BACKEND_RETURN_URL,
     userDefined1: safeEmail,
-    userDefined2: safeProducts
+    userDefined2: safeProducts,
+    userDefined3: safeDate
   };
 
   const jwtToken = generateJWT(paymentPayload);
-
-  console.log("🚀 Sending to 2C2P:", paymentPayload);
 
   try {
     const response = await axios.post(
@@ -79,17 +75,13 @@ app.post("/api/start-payment", async (req, res) => {
   }
 });
 
-// ✅ Callback Handler
 app.post("/api/payment-callback", async (req, res) => {
   const { payload } = req.body;
-  console.log("📩 Raw 2C2P Callback:", req.body);
 
   try {
     const decoded = jwt.verify(payload, SECRET_KEY, {
       algorithms: ["HS256"]
     });
-
-    console.log("✅ Decoded JWT:", decoded);
 
     if (decoded.respCode === "0000") {
       const webflowData = {
@@ -100,30 +92,106 @@ app.post("/api/payment-callback", async (req, res) => {
         products: decoded.userDefined2
       };
 
-      console.log("📦 Creating Webflow order with:", webflowData);
-
       try {
-        const webflowRes = await axios.post(
-          "https://int-production.up.railway.app/api/webflow-order",
-          webflowData
-        );
-        console.log("✅ Webflow Order Created:", webflowRes.data);
+        await axios.post("https://int-production.up.railway.app/api/webflow-order", webflowData);
       } catch (err) {
         console.error("❌ Webflow Order Error:", err.response?.data || err.message);
       }
 
       try {
-        const sorasoRes = await axios.post(SORASO_WEBHOOK, {
-          orderId: decoded.invoiceNo,
-          customer: decoded.userDefined1,
-          issue: "New paid order"
-        });
-        console.log("✅ Soraso Triggered:", sorasoRes.data);
+        const sorasoPayload = {
+          TriggerType: "ecomm_order_changed",
+          Payload: {
+            OrderId: decoded.invoiceNo,
+            Status: "fulfilled",
+            Comment: "",
+            OrderComment: "",
+            AcceptedOn: new Date().toISOString(),
+            FulfilledOn: new Date().toISOString(),
+            RefundedOn: null,
+            DisputedOn: null,
+            DisputeUpdatedOn: null,
+            DisputeLastStatus: null,
+            CustomerPaid: {
+              Unit: CURRENCY_CODE,
+              Value: decoded.amount.toString(),
+              String: `${decoded.amount} ${CURRENCY_CODE}`
+            },
+            NetAmount: {
+              Unit: CURRENCY_CODE,
+              Value: decoded.amount.toString(),
+              String: `${decoded.amount} ${CURRENCY_CODE}`
+            },
+            ApplicationFee: {
+              Unit: CURRENCY_CODE,
+              Value: "0",
+              String: null
+            },
+            AllAddresses: [],
+            ShippingAddress: null,
+            BillingAddress: null,
+            ShippingProvider: null,
+            ShippingTracking: null,
+            ShippingTrackingURL: null,
+            CustomerInfo: {
+              FullName: decoded.userDefined1.split('@')[0],
+              Email: decoded.userDefined1
+            },
+            PurchasedItems: decoded.userDefined2.split(',').map(item => ({
+              Count: 1,
+              ProductName: item.trim(),
+              ProductId: "",
+              VariantId: "",
+              ProductSlug: "",
+              VariantSlug: "",
+              VariantName: "",
+              VariantSKU: null,
+              VariantImage: { Url: "" },
+              VariantPrice: {
+                Unit: CURRENCY_CODE,
+                Value: "0",
+                String: `0 ${CURRENCY_CODE}`
+              },
+              RowTotal: {
+                Unit: CURRENCY_CODE,
+                Value: "0",
+                String: `0 ${CURRENCY_CODE}`
+              },
+              Weight: 0, Width: 0, Height: 0, Length: 0
+            })),
+            PurchasedItemsCount: decoded.userDefined2.split(',').length,
+            StripeDetails: {},
+            StripeCard: {},
+            CustomData: [],
+            Metadata: {
+              IsBuyNow: true,
+              AppointmentDate: decoded.userDefined3 || null
+            },
+            IsCustomerDeleted: false,
+            IsShippingRequired: false,
+            HasDownloads: false,
+            PaymentProcessor: "2C2P",
+            Totals: {
+              Subtotal: {
+                Unit: CURRENCY_CODE,
+                Value: decoded.amount.toString(),
+                String: `${decoded.amount} ${CURRENCY_CODE}`
+              },
+              Extras: [],
+              Total: {
+                Unit: CURRENCY_CODE,
+                Value: decoded.amount.toString(),
+                String: `${decoded.amount} ${CURRENCY_CODE}`
+              }
+            },
+            DownloadFiles: []
+          }
+        };
+
+        await axios.post(SORASO_WEBHOOK, sorasoPayload);
       } catch (err) {
         console.error("❌ Soraso Error:", err.response?.data || err.message);
       }
-    } else {
-      console.warn("⚠️ Payment Failed:", decoded.respDesc);
     }
   } catch (err) {
     console.error("❌ Invalid JWT:", err.message);
@@ -133,7 +201,6 @@ app.post("/api/payment-callback", async (req, res) => {
   res.status(200).send("ACK");
 });
 
-// ✅ Webflow CMS Order Creator
 app.post("/api/webflow-order", async (req, res) => {
   const { orderNumber, status, customer, total, products } = req.body;
 
@@ -152,8 +219,6 @@ app.post("/api/webflow-order", async (req, res) => {
     _archived: false,
     _draft: false
   };
-
-  console.log("📤 Webflow CMS Payload:", fieldData);
 
   try {
     const response = await axios.post(
@@ -182,12 +247,10 @@ app.post("/api/webflow-order", async (req, res) => {
   }
 });
 
-// ✅ Health Check
 app.get("/", (_, res) => {
   res.send("🚀 2C2P Payment Server Running");
 });
 
-// ✅ Dev: Generate test JWT
 app.get("/api/dev/generate-jwt", (req, res) => {
   const invoiceNo = "INV" + Date.now();
   const payload = {
@@ -206,7 +269,6 @@ app.get("/api/dev/generate-jwt", (req, res) => {
   });
 });
 
-// Start
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`✅ Server running on http://localhost:${PORT}`);
