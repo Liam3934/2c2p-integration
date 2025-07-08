@@ -188,6 +188,8 @@ app.post("/api/payment-callback", async (req, res) => {
           }
         };
 
+        console.log("🔍 Final Soraso Payload:", JSON.stringify(sorasoPayload, null, 2));
+
         await axios.post(SORASO_WEBHOOK, sorasoPayload);
       } catch (err) {
         console.error("❌ Soraso Error:", err.response?.data || err.message);
