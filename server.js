@@ -137,28 +137,35 @@ app.post("/api/payment-callback", async (req, res) => {
               FullName: decoded.userDefined1.split('@')[0],
               Email: decoded.userDefined1
             },
-            PurchasedItems: decoded.userDefined2.split(',').map(item => ({
-              Count: 1,
-              ProductName: item.trim(),
-              ProductId: "",
-              VariantId: "",
-              ProductSlug: "",
-              VariantSlug: "",
-              VariantName: "",
-              VariantSKU: null,
-              VariantImage: { Url: "" },
-              VariantPrice: {
-                Unit: CURRENCY_CODE,
-                Value: "0",
-                String: `0 ${CURRENCY_CODE}`
-              },
-              RowTotal: {
-                Unit: CURRENCY_CODE,
-                Value: "0",
-                String: `0 ${CURRENCY_CODE}`
-              },
-              Weight: 0, Width: 0, Height: 0, Length: 0
-            })),
+           PurchasedItems: decoded.userDefined2.split(',').map(item => {
+  const [qtyText, ...nameParts] = item.trim().split('x ');
+  const count = parseInt(qtyText.trim()) || 1;
+  const productName = nameParts.join('x ').trim() || "Unknown";
+
+  return {
+    Count: count,
+    ProductName: productName,
+    ProductId: "",
+    VariantId: "",
+    ProductSlug: "",
+    VariantSlug: "",
+    VariantName: "",
+    VariantSKU: null,
+    VariantImage: { Url: "" },
+    VariantPrice: {
+      Unit: CURRENCY_CODE,
+      Value: "0",
+      String: `0 ${CURRENCY_CODE}`
+    },
+    RowTotal: {
+      Unit: CURRENCY_CODE,
+      Value: "0",
+      String: `0 ${CURRENCY_CODE}`
+    },
+    Weight: 0, Width: 0, Height: 0, Length: 0
+  };
+}),
+
             PurchasedItemsCount: decoded.userDefined2.split(',').length,
             StripeDetails: {},
             StripeCard: {},
