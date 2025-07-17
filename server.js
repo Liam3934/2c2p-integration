@@ -5,11 +5,15 @@ const crypto = require("crypto");
 const bodyParser = require("body-parser");
 const axios = require("axios");
 
+const cors = require("cors");
+
+
 const app = express();
 const PORT = process.env.PORT || 5000;
 
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
+app.use(cors()); 
 
 const {
   MERCHANT_ID,
